@@ -72,7 +72,7 @@ class ChannelWave(pufferlib.PufferEnv):
         max_steps: int = 500,
         # Timing
         default_period: int = 40,
-        default_produce: int = 20,
+        default_produce: int = None,  # Auto-compute as period//2 if None
         channel_periods: list = None,
         channel_produces: list = None,
         channel_phases: list = None,
@@ -90,6 +90,10 @@ class ChannelWave(pufferlib.PufferEnv):
         seed: int = 0,
         render_mode: str = None,
     ):
+        # Auto-compute produce as 50% duty cycle if not specified
+        if default_produce is None:
+            default_produce = default_period // 2
+            
         total_agents = num_instances * agents_per_instance
         
         self.num_instances = num_instances
