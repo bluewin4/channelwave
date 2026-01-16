@@ -33,12 +33,18 @@ from pufferlib.ocean.channelwave import binding
 class ChannelWave(pufferlib.PufferEnv):
     """High-throughput channel signal game for phase-locking experiments.
 
+    Instance-based layout: The environment is structured as num_instances
+    independent copies, each with channels_per_instance channels and
+    agents_per_instance agents. Agents can only interact with channels
+    in their own instance.
+    
     Args:
-        num_channels: Number of independent channels (N)
-        num_agents: Number of agents (M)
+        num_instances: Number of independent environment copies (for parallel training)
+        channels_per_instance: Channels per instance (each agent's "world")
+        agents_per_instance: Agents per instance (sharing those channels)
         max_steps: Episode length in ticks (L)
         
-        # Timing parameters (support per-channel or scalar)
+        # Timing parameters
         default_period: Default T for all channels (ticks per cycle)
         default_produce: Default T_produce (ticks reward is available)
         channel_periods: Optional list of per-channel periods [T1, T2, ...]
@@ -46,22 +52,23 @@ class ChannelWave(pufferlib.PufferEnv):
         channel_phases: Optional list of per-channel phase offsets [φ1, φ2, ...]
         
         # Movement
-        t_m: Movement cooldown (analogous to d_h/r_a, the critical period)
-        move_penalty: Step cost R_S (typically 0 or small negative)
+        t_m: Movement cooldown (critical period T_c)
+        move_penalty: Step cost R_S (typically 0)
         
         # Rewards
         heart_reward: Reward per heart collected R_H
-        reward_mode: "discrete" (once per heart) or "continuous" (every tick at heart)
+        reward_mode: "discrete" (once per heart) or "continuous" (every tick)
         
         # Spawn mode
         spawn_mode: "deterministic", "random", or "independent"
-        alternation_pattern: Custom pattern for deterministic mode, e.g. [1, -1, 1, -1]
+        alternation_pattern: Custom pattern for deterministic mode
     """
 
     def __init__(
         self,
-        num_channels: int = 1,
-        num_agents: int = 1,
+        num_instances: int = 1,
+        channels_per_instance: int = 1,
+        agents_per_instance: int = 1,
         max_steps: int = 500,
         # Timing
         default_period: int = 40,
@@ -83,14 +90,21 @@ class ChannelWave(pufferlib.PufferEnv):
         seed: int = 0,
         render_mode: str = None,
     ):
-        self.num_agents = num_agents
+        total_agents = num_instances * agents_per_instance
+        
+        self.num_instances = num_instances
+        self.channels_per_instance = channels_per_instance
+        self.agents_per_instance = agents_per_instance
+        self.num_agents = total_agents
+        
         self.single_observation_space = gymnasium.spaces.Box(
             low=0, high=255, shape=(6,), dtype=np.uint8
         )
-        # Actions: (channel_idx, position_idx)
+        # Actions: (channel_offset, position_idx)
+        # channel_offset is relative to agent's instance (0 to channels_per_instance-1)
         # position_idx: 0=minus, 1=null, 2=plus
         self.single_action_space = gymnasium.spaces.MultiDiscrete(
-            [num_channels, 3], dtype=np.int32
+            [channels_per_instance, 3], dtype=np.int32
         )
         self.render_mode = render_mode
 
@@ -103,8 +117,11 @@ class ChannelWave(pufferlib.PufferEnv):
 
         # Store config for introspection
         self._config = {
-            "num_channels": num_channels,
-            "num_agents": num_agents,
+            "num_instances": num_instances,
+            "channels_per_instance": channels_per_instance,
+            "agents_per_instance": agents_per_instance,
+            "total_agents": total_agents,
+            "total_channels": num_instances * channels_per_instance,
             "max_steps": max_steps,
             "default_period": default_period,
             "default_produce": default_produce,
@@ -121,8 +138,9 @@ class ChannelWave(pufferlib.PufferEnv):
             self.truncations,
             1,  # Single environment that handles all agents internally
             seed,
-            num_channels=num_channels,
-            num_agents=num_agents,
+            num_instances=num_instances,
+            channels_per_instance=channels_per_instance,
+            agents_per_instance=agents_per_instance,
             max_steps=max_steps,
             default_period=default_period,
             default_produce=default_produce,
@@ -168,7 +186,7 @@ def make_hallway(
     period: int = None,
     produce: int = None,
     duty_cycle: float = 0.5,
-    num_agents: int = 1,
+    num_instances: int = 1,
     max_steps: int = 500,
     **kwargs
 ):
@@ -179,10 +197,11 @@ def make_hallway(
         period: T - square wave period. If None, defaults to 2 * distance
         produce: T_produce - time heart is available. If None, uses duty_cycle
         duty_cycle: Fraction of period that heart is available (default 0.5)
-        num_agents: Number of agents
+        num_instances: Number of independent agent/channel pairs (for parallel training)
         max_steps: Episode length L
     
     The critical period is T_c = distance (since r_a = 1 in this abstraction).
+    Each instance has 1 channel and 1 agent.
     """
     if period is None:
         period = 2 * distance  # Default: agent can just make it with perfect timing
@@ -190,8 +209,9 @@ def make_hallway(
         produce = int(period * duty_cycle)
     
     return ChannelWave(
-        num_channels=1,
-        num_agents=num_agents,
+        num_instances=num_instances,
+        channels_per_instance=1,
+        agents_per_instance=1,
         max_steps=max_steps,
         default_period=period,
         default_produce=produce,
@@ -207,7 +227,7 @@ def make_arnold_tongue_pair(
     phase_offset: int = None,
     distance: int = 10,
     duty_cycle: float = 0.5,
-    num_agents: int = 1,
+    num_instances: int = 1,
     max_steps: int = 500,
     **kwargs
 ):
@@ -219,9 +239,10 @@ def make_arnold_tongue_pair(
         phase_offset: Phase offset for channel 1 (if None, anti-phase)
         distance: Movement time / critical period
         duty_cycle: Duty cycle for both channels
+        num_instances: Number of independent copies (for parallel training)
         
     Returns:
-        ChannelWave with two independently-timed channels.
+        ChannelWave with num_instances copies, each having 2 independently-timed channels.
     """
     T1 = max(1, int(1.0 / f1))
     T2 = max(1, int(1.0 / f2))
@@ -233,8 +254,9 @@ def make_arnold_tongue_pair(
         phase_offset = T2 // 2  # Anti-phase by default
     
     return ChannelWave(
-        num_channels=2,
-        num_agents=num_agents,
+        num_instances=num_instances,
+        channels_per_instance=2,
+        agents_per_instance=1,
         max_steps=max_steps,
         default_period=T1,
         default_produce=produce1,
@@ -251,7 +273,8 @@ def make_four_arm_cross(
     pattern: str = "alternating",  # or "paired"
     period: int = 40,
     distance: int = 10,
-    num_agents: int = 2,
+    agents_per_instance: int = 2,
+    num_instances: int = 1,
     max_steps: int = 500,
     **kwargs
 ):
@@ -261,7 +284,8 @@ def make_four_arm_cross(
         pattern: "alternating" = [H1,H2,H1,H2] or "paired" = [H1,H1,H2,H2]
         period: Cycle period for all channels
         distance: d_side (adjacent channel distance)
-        num_agents: Number of competing/cooperating agents
+        agents_per_instance: Number of competing/cooperating agents per cross
+        num_instances: Number of independent cross setups (for parallel training)
     """
     produce = period // 2
     
@@ -273,8 +297,9 @@ def make_four_arm_cross(
         phases = [0, 0, period // 2, period // 2]
     
     return ChannelWave(
-        num_channels=4,
-        num_agents=num_agents,
+        num_instances=num_instances,
+        channels_per_instance=4,
+        agents_per_instance=agents_per_instance,
         max_steps=max_steps,
         default_period=period,
         default_produce=produce,
@@ -292,14 +317,25 @@ def make_four_arm_cross(
 if __name__ == "__main__":
     import time
     
-    print("Testing basic ChannelWave...")
-    N = 4096
-    env = ChannelWave(num_channels=1, num_agents=N, max_steps=500, spawn_mode="deterministic")
+    print("=" * 60)
+    print("Testing instance-based ChannelWave (128 independent agents)...")
+    print("=" * 60)
+    
+    # 128 instances, each with 1 channel and 1 agent = 128 independent learners
+    N = 128
+    env = ChannelWave(
+        num_instances=N,
+        channels_per_instance=1,
+        agents_per_instance=1,
+        max_steps=500,
+        spawn_mode="deterministic"
+    )
     env.reset()
+    print(f"Config: {env.config}")
     
     CACHE = 1024
     actions = np.zeros((CACHE, N, 2), dtype=np.int32)
-    actions[..., 0] = 0  # Always channel 0
+    actions[..., 0] = 0  # Channel offset 0 (only channel in instance)
     actions[..., 1] = np.random.randint(0, 3, size=(CACHE, N))  # Random position
     
     steps = 0
@@ -309,19 +345,22 @@ if __name__ == "__main__":
         steps += 1
     
     sps = int(env.num_agents * steps / (time.time() - start))
-    print(f"ChannelWave SPS: {sps:,}")
+    print(f"ChannelWave SPS (128 instances): {sps:,}")
     env.close()
     
-    print("\nTesting hallway experiment...")
-    env = make_hallway(distance=10, period=40, num_agents=1, max_steps=100)
+    print("\n" + "=" * 60)
+    print("Testing hallway experiment...")
+    print("=" * 60)
+    
+    env = make_hallway(distance=10, period=40, num_instances=1, max_steps=100)
     obs, _ = env.reset()
     print(f"Config: {env.config}")
     print(f"Observation shape: {obs.shape}")
     
     total_reward = 0
     for _ in range(100):
-        # Simple policy: alternate between + and -
-        action = np.array([[0, 2]])  # Stay at + position
+        # Simple policy: stay at + position
+        action = np.array([[0, 2]])  # Channel 0, position +
         obs, rewards, terminals, truncations, info = env.step(action)
         total_reward += rewards[0]
         if terminals[0]:
@@ -330,4 +369,33 @@ if __name__ == "__main__":
             break
     
     env.close()
-    print("Tests passed!")
+    
+    print("\n" + "=" * 60)
+    print("Testing high-throughput (4096 instances)...")
+    print("=" * 60)
+    
+    N = 4096
+    env = ChannelWave(
+        num_instances=N,
+        channels_per_instance=1,
+        agents_per_instance=1,
+        max_steps=500,
+        spawn_mode="deterministic"
+    )
+    env.reset()
+    
+    actions = np.zeros((CACHE, N, 2), dtype=np.int32)
+    actions[..., 0] = 0
+    actions[..., 1] = np.random.randint(0, 3, size=(CACHE, N))
+    
+    steps = 0
+    start = time.time()
+    while time.time() - start < 5:
+        env.step(actions[steps % CACHE])
+        steps += 1
+    
+    sps = int(env.num_agents * steps / (time.time() - start))
+    print(f"ChannelWave SPS (4096 instances): {sps:,}")
+    env.close()
+    
+    print("\nAll tests passed!")

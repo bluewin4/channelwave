@@ -5,8 +5,15 @@
 #include "../env_binding.h"
 
 static int my_init(Env* env, PyObject* args, PyObject* kwargs) {
-    env->num_channels = (int)unpack(kwargs, "num_channels");
-    env->num_agents = (int)unpack(kwargs, "num_agents");
+    // Instance-based layout: replicate (channels_per_instance, agents_per_instance) N times
+    env->num_instances = (int)unpack(kwargs, "num_instances");
+    env->channels_per_instance = (int)unpack(kwargs, "channels_per_instance");
+    env->agents_per_instance = (int)unpack(kwargs, "agents_per_instance");
+    
+    // Compute totals
+    env->num_channels = env->num_instances * env->channels_per_instance;
+    env->num_agents = env->num_instances * env->agents_per_instance;
+    
     env->max_steps = (int)unpack(kwargs, "max_steps");
     env->t_m = (int)unpack(kwargs, "t_m");
     env->move_penalty = (float)unpack(kwargs, "move_penalty");

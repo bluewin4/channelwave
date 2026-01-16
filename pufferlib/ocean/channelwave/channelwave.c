@@ -22,10 +22,23 @@ static void log_episode(ChannelWave* env, int agent_idx) {
     }
 }
 
+// Get instance index for an agent
+static inline int get_instance(ChannelWave* env, int agent_idx) {
+    return agent_idx / env->agents_per_instance;
+}
+
+// Get first channel index for an instance
+static inline int get_instance_channel_start(ChannelWave* env, int instance) {
+    return instance * env->channels_per_instance;
+}
+
 // Reset single agent state
 static void reset_agent(ChannelWave* env, int agent_idx) {
-    env->agent_pos[agent_idx] = 0;      // Start at Null (center)
-    env->agent_channel[agent_idx] = 0;  // Start on channel 0
+    int instance = get_instance(env, agent_idx);
+    int channel_start = get_instance_channel_start(env, instance);
+    
+    env->agent_pos[agent_idx] = 0;              // Start at Null (center)
+    env->agent_channel[agent_idx] = channel_start;  // Start on first channel of instance
     env->move_cd[agent_idx] = 0;
     env->episode_return[agent_idx] = 0.0f;
     env->episode_step[agent_idx] = 0;
@@ -99,10 +112,17 @@ void c_step(ChannelWave* env) {
 
     // ===== AGENT MOVEMENT =====
     for (int i = 0; i < agents; i++) {
-        // Parse action: [channel_idx, position_idx]
-        int target_channel = env->actions[2*i];
-        if (target_channel < 0) target_channel = 0;
-        if (target_channel >= channels) target_channel = channels - 1;
+        // Get instance boundaries for this agent
+        int instance = get_instance(env, i);
+        int ch_start = get_instance_channel_start(env, instance);
+        int ch_end = ch_start + env->channels_per_instance;
+        
+        // Parse action: [channel_offset, position_idx]
+        // channel_offset is relative to instance's first channel
+        int channel_offset = env->actions[2*i];
+        if (channel_offset < 0) channel_offset = 0;
+        if (channel_offset >= env->channels_per_instance) channel_offset = env->channels_per_instance - 1;
+        int target_channel = ch_start + channel_offset;
 
         int pos_idx = env->actions[2*i + 1];
         if (pos_idx < 0) pos_idx = 0;
@@ -164,18 +184,23 @@ void c_step(ChannelWave* env) {
         }
 
         // ===== OBSERVATIONS =====
-        // [reward_sign_if_visible, reward_timer_if_visible, agent_pos, move_cd, channel, spawn_timer]
+        // [reward_sign_if_visible, reward_timer_if_visible, agent_pos, move_cd, channel_offset, spawn_timer]
         unsigned char visible = at_null;  // Only see reward location from Null
         int16_t obs_sign = visible ? reward_pos : 0;
         int16_t obs_time = visible ? timer : 0;
         int16_t obs_spawn = visible ? env->spawn_timer[ch] : 0;
+        
+        // Report channel as offset within instance (not global index)
+        int instance = get_instance(env, i);
+        int ch_start = get_instance_channel_start(env, instance);
+        int ch_offset = ch - ch_start;
 
         int obs_base = i * 6;
         env->observations[obs_base + 0] = (unsigned char)(obs_sign + 128);
         env->observations[obs_base + 1] = (unsigned char)(obs_time > 255 ? 255 : (obs_time < 0 ? 0 : obs_time));
         env->observations[obs_base + 2] = (unsigned char)(pos + 1);
         env->observations[obs_base + 3] = (unsigned char)(env->move_cd[i] > 255 ? 255 : env->move_cd[i]);
-        env->observations[obs_base + 4] = (unsigned char)ch;
+        env->observations[obs_base + 4] = (unsigned char)ch_offset;
         env->observations[obs_base + 5] = (unsigned char)(obs_spawn > 255 ? 255 : (obs_spawn < 0 ? 0 : obs_spawn));
     }
 

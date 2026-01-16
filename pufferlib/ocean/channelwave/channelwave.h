@@ -19,9 +19,12 @@ typedef struct {
     float* rewards;              // Required field
     unsigned char* terminals;    // Required field
 
-    // Config
-    int num_channels;
-    int num_agents;
+    // Config - Instance-based layout
+    int num_instances;         // Number of independent replications
+    int channels_per_instance; // Channels per instance (user sets this)
+    int agents_per_instance;   // Agents per instance (user sets this)
+    int num_channels;          // Total = num_instances * channels_per_instance
+    int num_agents;            // Total = num_instances * agents_per_instance
     int max_steps;             // Episode length (L in document)
     float move_penalty;        // R_S step penalty
     float heart_reward;        // R_H reward per heart
