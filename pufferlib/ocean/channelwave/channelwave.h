@@ -54,7 +54,7 @@ typedef struct {
     unsigned char* reward_claimed; // len=num_channels
 
     int8_t* agent_pos;         // len=num_agents, {-1,0,1}
-    int8_t* agent_channel;     // len=num_agents, which channel agent is attending
+    int16_t* agent_channel;    // len=num_agents, which channel agent is attending (supports up to 32767 channels)
     int16_t* move_cd;          // len=num_agents
 
     // Episode tracking per agent

@@ -135,7 +135,7 @@ void c_step(ChannelWave* env) {
         
         if (env->move_cd[i] == 0 && moved) {
             env->agent_pos[i] = target_pos;
-            env->agent_channel[i] = (int8_t)target_channel;
+            env->agent_channel[i] = (int16_t)target_channel;
             env->move_cd[i] = env->t_m;
         } else if (env->move_cd[i] > 0) {
             env->move_cd[i]--;

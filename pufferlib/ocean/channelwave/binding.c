@@ -35,7 +35,7 @@ static int my_init(Env* env, PyObject* args, PyObject* kwargs) {
 
     // Allocate per-agent arrays
     env->agent_pos = (int8_t*)calloc(num_agents, sizeof(int8_t));
-    env->agent_channel = (int8_t*)calloc(num_agents, sizeof(int8_t));
+    env->agent_channel = (int16_t*)calloc(num_agents, sizeof(int16_t));
     env->move_cd = (int16_t*)calloc(num_agents, sizeof(int16_t));
     env->episode_return = (float*)calloc(num_agents, sizeof(float));
     env->episode_step = (int32_t*)calloc(num_agents, sizeof(int32_t));
