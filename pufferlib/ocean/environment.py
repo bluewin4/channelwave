@@ -136,6 +136,7 @@ MAKE_FUNCTIONS = {
     'snake': 'Snake',
     'squared': 'Squared',
     'pysquared': 'PySquared',
+    'channelwave': 'ChannelWave',
     'connect4': 'Connect4',
     'g2048': 'G2048',
     'terraform': 'Terraform',

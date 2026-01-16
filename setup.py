@@ -276,7 +276,9 @@ install_requires = [
     'shimmy[gym-v21]',
     'gym==0.23',
     'gymnasium>=0.29.1',
-    'pettingzoo>=1.24.1',
+    # Keep baseline PettingZoo compatible with older environments/extras like `magent`
+    # that still pin to older PettingZoo releases.
+    'pettingzoo>=1.19.0',
 ]
 
 if not NO_TRAIN:
