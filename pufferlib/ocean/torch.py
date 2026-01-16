@@ -963,3 +963,72 @@ class G2048(nn.Module):
         logits = self.decoder(hidden)
         values = self.value(hidden)
         return logits, values
+
+
+# ============================================================================
+# ChannelWave - Phase-locking experiments
+# ============================================================================
+
+class ChannelWaveLSTM(pufferlib.models.LSTMWrapper):
+    """LSTM wrapper for ChannelWave with custom initialization for oscillatory dynamics.
+    
+    Diagonal initialization strengthens the recurrent connections, helping the
+    LSTM maintain phase information across timesteps for synchronization.
+    """
+    def __init__(self, env, policy, input_size=128, hidden_size=128, diagonal_scale=1.5):
+        super().__init__(env, policy, input_size, hidden_size)
+        
+        # Strengthen diagonal of weight_hh for better memory persistence
+        with torch.no_grad():
+            weight_hh = self.lstm.weight_hh_l0
+            h = self.hidden_size
+            for gate in range(4):
+                start = gate * h
+                end = (gate + 1) * h
+                weight_hh[start:end, :] += diagonal_scale * torch.eye(h, device=weight_hh.device)
+            self.cell.weight_hh = self.lstm.weight_hh_l0
+
+
+class ChannelWave(nn.Module):
+    """Policy for ChannelWave phase-locking experiments.
+    
+    Observation: (6,) uint8 - [reward_sign, reward_timer, agent_pos, move_cd, channel, spawn_timer]
+    Action: MultiDiscrete([num_channels, 3]) - [channel_idx, position_idx]
+    """
+    def __init__(self, env, hidden_size=128, **kwargs):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.is_continuous = False
+        
+        num_obs = np.prod(env.single_observation_space.shape)
+        
+        self.encoder = nn.Sequential(
+            pufferlib.pytorch.layer_init(nn.Linear(num_obs, hidden_size)),
+            nn.GELU(),
+            pufferlib.pytorch.layer_init(nn.Linear(hidden_size, hidden_size)),
+            nn.GELU(),
+        )
+        
+        self.action_nvec = tuple(env.single_action_space.nvec)
+        self.decoder = pufferlib.pytorch.layer_init(
+            nn.Linear(hidden_size, sum(self.action_nvec)), std=0.01
+        )
+        self.value = pufferlib.pytorch.layer_init(nn.Linear(hidden_size, 1), std=1)
+    
+    def forward(self, observations, state=None):
+        hidden = self.encode_observations(observations, state)
+        logits, values = self.decode_actions(hidden)
+        return logits, values
+    
+    def forward_eval(self, observations, state=None):
+        return self.forward(observations, state)
+    
+    def encode_observations(self, observations, state=None):
+        batch_size = observations.shape[0]
+        obs = observations.view(batch_size, -1).float() / 255.0
+        return self.encoder(obs)
+    
+    def decode_actions(self, hidden):
+        logits = self.decoder(hidden).split(self.action_nvec, dim=1)
+        values = self.value(hidden)
+        return logits, values
