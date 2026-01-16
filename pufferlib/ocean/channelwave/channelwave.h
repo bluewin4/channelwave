@@ -7,6 +7,7 @@ typedef struct {
     float score;
     float hearts_collected;
     float hearts_missed;
+    float collection_rate;    // hearts_collected / max_possible (0-1)
     float sync_accuracy;      // Fraction of time agent was at correct position
     float episode_length;
     float n; // Required as the last field

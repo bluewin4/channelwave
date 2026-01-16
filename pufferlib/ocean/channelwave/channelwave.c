@@ -13,9 +13,18 @@ static inline int8_t rand_sign() {
 static void log_episode(ChannelWave* env, int agent_idx) {
     float ep_len = (float)env->episode_step[agent_idx];
     if (ep_len > 0) {
+        // Compute max possible hearts for this agent's channel
+        int instance = agent_idx / env->agents_per_instance;
+        int ch_start = instance * env->channels_per_instance;
+        float period = (float)env->channel_period[ch_start];
+        float max_hearts = ep_len / period;
+        float collected = (float)env->hearts_collected[agent_idx];
+        float rate = (max_hearts > 0) ? (collected / max_hearts) : 0.0f;
+        
         env->log.score += env->episode_return[agent_idx];
-        env->log.hearts_collected += env->hearts_collected[agent_idx];
+        env->log.hearts_collected += collected;
         env->log.hearts_missed += env->hearts_missed[agent_idx];
+        env->log.collection_rate += rate;
         env->log.sync_accuracy += (float)env->sync_ticks[agent_idx] / ep_len;
         env->log.episode_length += ep_len;
         env->log.n += 1.0f;

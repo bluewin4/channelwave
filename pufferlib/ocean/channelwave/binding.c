@@ -144,6 +144,7 @@ static int my_log(PyObject* dict, Log* log) {
     assign_to_dict(dict, "score", log->score);
     assign_to_dict(dict, "hearts_collected", log->hearts_collected);
     assign_to_dict(dict, "hearts_missed", log->hearts_missed);
+    assign_to_dict(dict, "collection_rate", log->collection_rate);
     assign_to_dict(dict, "sync_accuracy", log->sync_accuracy);
     assign_to_dict(dict, "episode_length", log->episode_length);
     return 0;
