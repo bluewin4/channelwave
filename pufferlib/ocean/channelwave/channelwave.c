@@ -208,6 +208,9 @@ void c_step(ChannelWave* env) {
     }
 
     // ===== CHANNEL TIMER UPDATES =====
+    // Fast path check: 1:1 mapping (one agent per channel per instance)
+    const int is_one_to_one = (env->channels_per_instance == 1 && env->agents_per_instance == 1);
+    
     for (int c = 0; c < channels; c++) {
         // Decay reward timer
         if (env->reward_timer[c] > 0) {
@@ -215,10 +218,15 @@ void c_step(ChannelWave* env) {
             if (env->reward_timer[c] == 0) {
                 // Reward expired - count as missed if unclaimed
                 if (!env->reward_claimed[c]) {
-                    // Attribute miss to agents on this channel
-                    for (int i = 0; i < agents; i++) {
-                        if (env->agent_channel[i] == c) {
-                            env->hearts_missed[i]++;
+                    if (is_one_to_one) {
+                        // O(1) fast path: channel c maps directly to agent c
+                        env->hearts_missed[c]++;
+                    } else {
+                        // O(n) fallback: scan for agents on this channel
+                        for (int i = 0; i < agents; i++) {
+                            if (env->agent_channel[i] == c) {
+                                env->hearts_missed[i]++;
+                            }
                         }
                     }
                 }
