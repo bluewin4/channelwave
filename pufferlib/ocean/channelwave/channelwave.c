@@ -47,22 +47,20 @@ static void reset_agent(ChannelWave* env, int agent_idx) {
     env->sync_ticks[agent_idx] = 0;
 }
 
+// Per-channel spawn counter for deterministic alternation
+static int spawn_count[32768] = {0};  // Track spawn count per channel
+
 // Spawn reward on a channel based on spawn mode
 static void spawn_reward(ChannelWave* env, int channel) {
     int8_t sign;
     
-    if (env->spawn_mode == 0) {
-        // Deterministic alternating: use alternation pattern
-        if (env->alternation_pattern && env->alternation_len > 0) {
-            sign = env->alternation_pattern[env->alternation_idx % env->alternation_len];
-            env->alternation_idx++;
-        } else {
-            // Default: simple alternation +1, -1, +1, -1...
-            sign = ((env->alternation_idx % 2) == 0) ? 1 : -1;
-            env->alternation_idx++;
-        }
+    if (env->spawn_mode == 0 || env->spawn_mode == 2) {
+        // Deterministic alternating per channel
+        // Each channel has its own alternation state based on spawn count
+        sign = ((spawn_count[channel] % 2) == 0) ? 1 : -1;
+        spawn_count[channel]++;
     } else {
-        // Random sign
+        // Random sign (spawn_mode == 1)
         sign = rand_sign();
     }
     
@@ -78,6 +76,7 @@ void c_reset(ChannelWave* env) {
         env->reward_pos[c] = 0;
         env->reward_timer[c] = 0;
         env->reward_claimed[c] = 0;
+        spawn_count[c] = 0;  // Reset per-channel spawn counter
         // Initialize spawn timers with phase offsets
         env->spawn_timer[c] = env->channel_phase[c];
     }
@@ -90,17 +89,12 @@ void c_reset(ChannelWave* env) {
         reset_agent(env, i);
     }
 
-    // Initial spawn based on mode
-    if (env->spawn_mode == 0 || env->spawn_mode == 1) {
-        // Single-channel modes: spawn on channel 0
-        spawn_reward(env, 0);
-    } else {
-        // Independent channels: spawn on all channels that have phase=0
-        for (int c = 0; c < env->num_channels; c++) {
-            if (env->spawn_timer[c] == 0) {
-                spawn_reward(env, c);
-                env->spawn_timer[c] = env->channel_period[c];
-            }
+    // Initial spawn: all channels with phase=0 get a reward
+    // This works for both single-channel (mode 0/1) and multi-channel (mode 2)
+    for (int c = 0; c < env->num_channels; c++) {
+        if (env->spawn_timer[c] == 0) {
+            spawn_reward(env, c);
+            env->spawn_timer[c] = env->channel_period[c];
         }
     }
 }
@@ -230,16 +224,10 @@ void c_step(ChannelWave* env) {
         }
         
         // Spawn new reward when timer hits zero
+        // All channels spawn independently (works for instance-based layout)
         if (env->spawn_timer[c] == 0 && env->reward_timer[c] == 0) {
-            if (env->spawn_mode == 2) {
-                // Independent channels: each channel spawns on its own schedule
-                spawn_reward(env, c);
-                env->spawn_timer[c] = env->channel_period[c];
-            } else if (c == 0) {
-                // Single-channel modes: only channel 0 matters
-                spawn_reward(env, 0);
-                env->spawn_timer[0] = env->channel_period[0];
-            }
+            spawn_reward(env, c);
+            env->spawn_timer[c] = env->channel_period[c];
         }
     }
 
